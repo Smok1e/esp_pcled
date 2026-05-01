@@ -307,8 +307,6 @@ void Main::initSerial()
 
 void Main::serialHandler()
 {
-	vTaskDelay(pdMS_TO_TICKS(2000));
-	
 	ESP_LOGI(TAG, "serial handler started");
 	
 	uint8_t buffer[BUFFSIZE] = {};
