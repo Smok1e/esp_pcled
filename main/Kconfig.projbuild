@@ -1,0 +1,20 @@
+menu "PCLED"
+    config LEDSTRIP_DATA_PIN
+        int "Ledstrip data pin"
+        default 6
+        help
+            Set ledstrip data pin number
+
+    config LEDSTRIP_LED_NUMBER
+        int "Ledstrip led number"
+        default 144
+        help
+            Set number of LEDs present on the ledstrip
+
+    config LEDSTRIP_UPDATE_RATE
+        int "Ledstrip update rate (HZ)"
+        default 100
+        help
+            Set ledstrip update frequency
+
+endmenu
