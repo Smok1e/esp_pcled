@@ -88,7 +88,7 @@ int Main::ApiSetPixelRGB(lua_State* lua)
 	int g = luaL_checkinteger(lua, 3);
 	int b = luaL_checkinteger(lua, 4);
 	
-	led_strip_set_pixel(instance->m_ledstrip, index, r, g, b);
+	ESP_ERROR_CHECK(led_strip_set_pixel(instance->m_ledstrip, index, r, g, b));
 	
 	lua_pushboolean(lua, true);
 	return 1;
@@ -111,7 +111,7 @@ int Main::ApiSetPixelHSV(lua_State* lua)
 	int s = luaL_checkinteger(lua, 3);
 	int v = luaL_checkinteger(lua, 4);
 	
-	led_strip_set_pixel_hsv(instance->m_ledstrip, index, h, s, v);
+	ESP_ERROR_CHECK(led_strip_set_pixel_hsv(instance->m_ledstrip, index, h, s, v));
 	
 	lua_pushboolean(lua, true);
 	return 1;
@@ -295,6 +295,8 @@ void Main::initSerial()
 
 void Main::serialHandler()
 {
+	vTaskDelay(pdMS_TO_TICKS(2000));
+	
 	ESP_LOGI(TAG, "serial handler started");
 	
 	uint8_t buffer[BUFFSIZE] = {};
