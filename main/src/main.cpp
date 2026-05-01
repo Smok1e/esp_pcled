@@ -8,6 +8,9 @@
 
 static const char* TAG = "main";
 
+extern const uint8_t DEFAULT_LUA_BEGIN[] asm("_binary_default_lua_start");
+extern const uint8_t DEFAULT_LUA_END  [] asm("_binary_default_lua_end"  );
+
 //======================================== NVS
 
 void Main::initNVS()
@@ -68,7 +71,16 @@ void Main::initLua()
 	}
 	
 	else
-		ESP_LOGI(TAG, "no saved program found");
+	{
+		ESP_LOGI(TAG, "no saved program found; running default program");
+		
+		executeProgram(
+			std::string_view(
+				reinterpret_cast<const char*>(DEFAULT_LUA_BEGIN),
+				reinterpret_cast<const char*>(DEFAULT_LUA_END)
+			)
+		);
+	}
 }
 
 int Main::ApiSetPixelRGB(lua_State* lua)
@@ -381,6 +393,10 @@ void Main::serialProcessPacket()
 			serialOnEraseProgram();
 			break;
 			
+		case Message::PRINT_SAVED_PROGRAM:
+			serialOnPrintSavedProgram();
+			break;
+			
 		case Message::REBOOT:
 			serialOnReboot();
 			break;
@@ -437,10 +453,7 @@ void Main::serialOnExecuteProgram()
 		return;
 	
 	if (save)
-	{
 		saveProgram(source);
-		ESP_LOGI(TAG, "program saved");
-	}
 }
 
 // Erase program message (id 0x02) does not require any payload
@@ -450,7 +463,24 @@ void Main::serialOnEraseProgram()
 	saveProgram(std::nullopt);
 }
 
-// Reboot message (id 0x03) does not require any payload
+// Print saved program message (id 0x03) does not require any payload
+void Main::serialOnPrintSavedProgram()
+{
+	ESP_LOGI(TAG, "received saved program listing request");
+	
+	std::string program;
+	if (!loadProgram(program))
+	{
+		ESP_LOGE(TAG, "no program is currently saved");
+		return;
+	}
+	
+	auto [size, units] = FormatBytes(program.size());
+	ESP_LOGI(TAG, "currently saved program source code (%.2f %s):", size, units);
+	printf("%.*s\n", program.length(), program.data());
+}
+
+// Reboot message (id 0x04) does not require any payload
 void Main::serialOnReboot()
 {
 	ESP_LOGI(TAG, "received reboot request; restarting...");

@@ -33,10 +33,11 @@ const     uint32_t PACKET_SIGNATURE = *reinterpret_cast<const uint32_t*>("PIDR")
 
 enum class Message: uint8_t
 {
-	DEBUG_MESSAGE   = 0,
-	EXECUTE_PROGRAM = 1,
-	ERASE_PROGRAM   = 2,
-	REBOOT          = 3
+	DEBUG_MESSAGE       = 0,
+	EXECUTE_PROGRAM     = 1,
+	ERASE_PROGRAM       = 2,
+	PRINT_SAVED_PROGRAM = 3,
+	REBOOT              = 4
 };
 
 //========================================
@@ -69,6 +70,7 @@ private:
 	void serialOnDebugMessage();
 	void serialOnExecuteProgram();
 	void serialOnEraseProgram();
+	void serialOnPrintSavedProgram();
 	void serialOnReboot();
 	
 	void initNVS();

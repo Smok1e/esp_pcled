@@ -7,6 +7,9 @@ idf_component_register(
 	INCLUDE_DIRS
 		"include/"
 	
+	EMBED_FILES
+		"resources/default.lua"
+	
 	REQUIRES
 		nvs_flash
 		esp_driver_gpio
