@@ -17,4 +17,10 @@ menu "PCLED"
         help
             Set ledstrip update frequency
 
+    config LEDSTRIP_SERIAL_VERBOSE
+        bool "Verbose serial processing"
+        default false
+        help
+            Print debug information while receiving packets
+
 endmenu

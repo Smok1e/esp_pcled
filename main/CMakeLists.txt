@@ -3,6 +3,7 @@ idf_component_register(
 		"src/main.cpp"
 		"src/buffer.cpp"
 		"src/utils.cpp"
+		"src/crc32.cpp"
 		
 	INCLUDE_DIRS
 		"include/"

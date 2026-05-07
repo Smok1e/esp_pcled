@@ -1,8 +1,17 @@
 #include <main.hpp>
 #include <utils.hpp>
 #include <buffer.hpp>
+#include <crc32.hpp>
 
 #include <esp_timer.h>
+
+//========================================
+
+#ifdef CONFIG_LEDSTRIP_SERIAL_VERBOSE
+	#define LOG_SERIAL(format, ...) ESP_LOGI("serial", format, __VA_ARGS__)
+#else
+	#define LOG_SERIAL(...)
+#endif // CONFIG_LEDSTRIP_SERIAL_VERBOSE
 
 //========================================
 
@@ -132,9 +141,20 @@ int Main::ApiSetPixelHSV(lua_State* lua)
 int Main::ApiClear(lua_State* lua)
 {
 	auto* instance = reinterpret_cast<Main*>(lua_touserdata(lua, lua_upvalueindex((1))));
-	led_strip_clear(instance->m_ledstrip);
+	
+	// This shit casuses flickering
+	// led_strip_clear(instance->m_ledstrip);
+	
+	for (size_t i = 0; i < CONFIG_LEDSTRIP_LED_NUMBER; i++)
+		led_strip_set_pixel(instance->m_ledstrip, i, 0, 0, 0);
 	
 	lua_pushboolean(lua, true);
+	return 1;
+}
+
+int Main::LuaMessageHandler(lua_State* lua)
+{
+	luaL_traceback(lua, lua, lua_tostring(lua, -1), 1);
 	return 1;
 }
 
@@ -276,12 +296,14 @@ void Main::ledstripHandler()
 	{
 		if (!m_script_failure)
 		{
-			lua_getglobal(m_lua, "update");
-			lua_pushnumber(m_lua, static_cast<float>(esp_timer_get_time() - m_script_start_time) / 1'000'000);
+			float time = static_cast<float>(esp_timer_get_time() - m_script_start_time) / 1'000'000;
 			
-			if (lua_pcall(m_lua, 1, 0, 0) != LUA_OK)
+			lua_pushcfunction(m_lua, Main::LuaMessageHandler);
+			lua_getglobal(m_lua, "update");
+			lua_pushnumber(m_lua, time);
+			if (lua_pcall(m_lua, 1, 0, -3) != LUA_OK)
 			{
-				ESP_LOGE(TAG, "update script failed: %s", lua_tostring(m_lua, -1));
+				ESP_LOGE(TAG, "%s", lua_tostring(m_lua, -1));
 				lua_pop(m_lua, 1);
 				
 				m_script_failure = true;
@@ -298,8 +320,8 @@ void Main::ledstripHandler()
 void Main::initSerial()
 {
 	usb_serial_jtag_driver_config_t config = {};
-	config.rx_buffer_size = BUFFSIZE;
-	config.tx_buffer_size = BUFFSIZE;
+	config.rx_buffer_size = 4096;
+	config.tx_buffer_size = 1024;
 
 	ESP_ERROR_CHECK(usb_serial_jtag_driver_install(&config));
 	ESP_LOGI(TAG, "USB serial/JTAG driver initialized");
@@ -309,12 +331,14 @@ void Main::serialHandler()
 {
 	ESP_LOGI(TAG, "serial handler started");
 	
-	uint8_t buffer[BUFFSIZE] = {};
+	uint8_t buffer[128] = {};
 	while (true)
 	{
-		int len = usb_serial_jtag_read_bytes(buffer, BUFFSIZE, portMAX_DELAY);
+		int len = usb_serial_jtag_read_bytes(buffer, sizeof(buffer), portMAX_DELAY);
 		if (len)
 		{
+			LOG_SERIAL("received %d bytes", len);
+
 			m_packet.write(buffer, len);
 			serialProcessData();
 		}
@@ -325,11 +349,17 @@ void Main::serialProcessData()
 {
 	while (m_pending_packet_length != 0 || m_packet.remain() >= 8)
 	{
+		// Header is not yet received, but there is enough data to read it
 		if (!m_pending_packet_length)
 		{
-			auto offset = m_packet.offset();
-			auto signature = m_packet.readUint32();
+			LOG_SERIAL("receiving packet header:");
 			
+			auto offset = m_packet.offset();
+			
+			auto signature = m_packet.readUint32();
+			LOG_SERIAL("got signature: 0x%08X", static_cast<unsigned>(signature));
+			
+			// Signature is invalid, trying again starting from next byte
 			if (signature != PACKET_SIGNATURE)
 			{
 				if (!m_last_signature_failure)
@@ -343,19 +373,74 @@ void Main::serialProcessData()
 					m_last_signature_failure = true;
 				}
 				
+				LOG_SERIAL("continue from the next byte");
 				m_packet.seek(offset + 1, true);
 				continue;
 			}
 			
+			// Signature is valid, reading packet size
 			m_last_signature_failure = false;
+			
 			m_pending_packet_length = m_packet.readUint32();
+			
+			LOG_SERIAL(
+				"got packet length: 0x%08X (%zu)",
+				static_cast<unsigned>(m_pending_packet_length),
+				m_pending_packet_length
+			);
 		}
 		
+		// Whole packet received
 		if (m_packet.remain() >= m_pending_packet_length)
-			serialProcessPacket();
+		{
+			LOG_SERIAL("whole packet received");
+			
+			// Validating checksum
+			auto offset = m_packet.offset();
+			
+			m_packet.seek(m_pending_packet_length - 4);
+			auto checksum = m_packet.readUint32();
+			LOG_SERIAL("expected checksum: 0x%08X", static_cast<unsigned>(checksum));
+			
+			m_packet.seek(offset - 8, true);
+			auto actual_checksum = crc32(m_packet.data(), m_pending_packet_length + 4);
+			LOG_SERIAL("actual checksum: 0x%08X", static_cast<unsigned>(actual_checksum));
+			
+			m_packet.seek(offset, true);
+			
+			if (checksum == actual_checksum)
+				serialProcessPacket();
+			
+			else
+			{
+				ESP_LOGE(
+					TAG,
+					"packet checksum is invalid (expected 0x%08X, got 0x%08X)",
+					static_cast<unsigned>(checksum),
+					static_cast<unsigned>(actual_checksum)
+				);
+
+#ifdef CONFIG_LEDSTRIP_SERIAL_VERBOSE
+				m_packet.seek(offset - 8, true);
+				LOG_SERIAL("received packet content:");
+				DumpHex(m_packet.data(), m_pending_packet_length + 8);
+#endif // CONFIG_LEDSTRIP_SERIAL_VERBOSE
+			}
+			
+			m_packet.seek(offset + m_pending_packet_length, true);
+			m_packet.discard();
+			m_pending_packet_length = 0;
+		}
 		
 		else
+		{
+			LOG_SERIAL(
+				"not enough data to read whole packet; expecting %zu more bytes",
+				m_pending_packet_length - m_packet.remain()
+			);
+			
 			return;
+		}
 	}
 }
 
@@ -365,16 +450,18 @@ void Main::serialProcessData()
 // +-------------+------------------------+-------------------------------------------------+
 // | signature   | uint32                 | Packet signature, should be 'PIDR' (0x52444950) |
 // +-------------+------------------------+-------------------------------------------------+
-// | packet_size | uint32                 | Packet size (message_id + payload)              |
+// | packet_size | uint32                 | Packet size (message_id + payload + checksum)   |
 // +-------------+------------------------+-------------------------------------------------+
 // | message_id  | uint8                  | Message ID                                      |
 // +-------------+------------------------+-------------------------------------------------+
 // | payload     | uint8[packet_size - 1] | Message payload                                 |
 // +-------------+------------------------+-------------------------------------------------+
+// | checksum    | uint32                 | CRC32 checksum of all preceding values          |
+// +-------------+------------------------+-------------------------------------------------+
+
 void Main::serialProcessPacket()
 {
 	ESP_LOGI(TAG, "received full packet (%zu bytes)", m_pending_packet_length);
-	auto offset = m_packet.offset();
 	auto message_id = static_cast<Message>(m_packet.readUint8());
 	
 	switch (message_id)
@@ -404,10 +491,6 @@ void Main::serialProcessPacket()
 			break;
 			
 	}
-	
-	m_packet.seek(offset + m_pending_packet_length, true);
-	m_packet.discard();
-	m_pending_packet_length = 0;
 }
 
 // Debug message (id 0x00) payload structure:

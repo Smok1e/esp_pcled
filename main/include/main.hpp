@@ -56,6 +56,8 @@ private:
 	static int ApiSetPixelHSV(lua_State* lua);
 	static int ApiClear      (lua_State* lua);
 	
+	static int LuaMessageHandler(lua_State* lua);
+	
 	bool executeProgram(std::string_view source, char* error_buffer = nullptr, size_t error_buffer_length = 0);
 	void saveProgram(std::optional<std::string_view> source = std::nullopt);
 	bool loadProgram(std::string& program);
