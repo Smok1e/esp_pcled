@@ -163,7 +163,6 @@ bool Main::executeProgram(std::string_view source, char* error_buffer /*= nullpt
 	if (luaL_loadbuffer(m_lua, source.data(), source.length(), "program") != LUA_OK)
 	{
 		const char* message = lua_tostring(m_lua, -1);
-		
 		ESP_LOGE(TAG, "program syntax error: %s", message);
 		
 		if (error_buffer)
@@ -176,7 +175,6 @@ bool Main::executeProgram(std::string_view source, char* error_buffer /*= nullpt
 	if (lua_pcall(m_lua, 0, 0, 0) != LUA_OK)
 	{
 		const char* message = lua_tostring(m_lua, -1);
-		
 		ESP_LOGE(TAG, "program runtime error: %s", message);
 		
 		if (error_buffer)
@@ -291,6 +289,7 @@ void Main::startLedstripHandler()
 void Main::ledstripHandler()
 {
 	ESP_LOGI(TAG, "ledstrip handler started");
+	lua_pushcfunction(m_lua, Main::LuaMessageHandler);
 	
 	while (true)
 	{
@@ -298,7 +297,6 @@ void Main::ledstripHandler()
 		{
 			float time = static_cast<float>(esp_timer_get_time() - m_script_start_time) / 1'000'000;
 			
-			lua_pushcfunction(m_lua, Main::LuaMessageHandler);
 			lua_getglobal(m_lua, "update");
 			lua_pushnumber(m_lua, time);
 			if (lua_pcall(m_lua, 1, 0, -3) != LUA_OK)
